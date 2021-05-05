@@ -1,0 +1,91 @@
+---
+title: "PennDOT Analysis - Event Plotting"
+author: "Andrew Kurzweil"
+date: "28 Oct 2020"
+output:
+  html_document:
+    fig_height: 8
+    fig_width: 11
+---
+
+This notebook contains plots and ad-hoc analyses for my thesis, based on work done for the PennDOT project at SMP A.
+
+The pre-processor file must be run first, to load all data and calculated event statistics.
+
+```{r echo=FALSE, warning=FALSE, include=FALSE}
+library(ggplot2)
+library(plotly)
+
+# load data files to KNIT environment
+load("K:/PennDOT DATA TEMP/DATA/SMPA_ALL_DATA.Rdata")
+load("K:/PennDOT DATA TEMP/DATA/SMPA_EVENT_STATS_ALL.Rdata")
+
+datPlot = filter(dat, !is.na(stormID), TIMESTAMP > as.Date("2018-09-01"))
+
+```
+
+```{r echo=FALSE, warning=FALSE}
+p = ggplot(data = datPlot, aes(x=storm_index, y=cumulative_rainfall)) + geom_line(aes(color = stormID))
+p = p + labs(x = "5-minute periods since start of event")
+ggplotly(p)
+```
+
+```{r echo=FALSE, warning=FALSE}
+p = ggplot(data = datPlot, aes(x=storm_index, y=N8_In_Flow_CMS)) + geom_line(aes(color = stormID))
+p = p + labs(x = "5-minute periods since start of event")
+ggplotly(p)
+```
+
+```{r echo=FALSE, warning=FALSE}
+p = ggplot(data = datPlot, aes(x=storm_index, y=N9_In_Flow_CMS)) + geom_line(aes(color = stormID))
+p = p + labs(x = "5-minute periods since start of event")
+ggplotly(p)
+```
+
+```{r echo=FALSE, warning=FALSE}
+p = ggplot(data = datPlot, aes(x=storm_index, y=N10_In_Flow_CMS)) + geom_line(aes(color = stormID))
+p = p + labs(x = "5-minute periods since start of event")
+ggplotly(p)
+```
+
+```{r echo=FALSE, warning=FALSE}
+p = ggplot(data = datPlot, aes(x=storm_index, y=GR2a_WSoilMoist10)) + geom_line(aes(color = stormID))
+p = p + labs(x = "5-minute periods since start of event")
+ggplotly(p)
+```
+
+```{r echo=FALSE, warning=FALSE}
+p = ggplot(data = datPlot, aes(x=storm_index, y=GR2a_WSoilMoist35)) + geom_line(aes(color = stormID))
+p = p + labs(x = "5-minute periods since start of event")
+ggplotly(p)
+```
+
+```{r echo=FALSE, warning=FALSE}
+p = ggplot(data = datPlot, aes(x=storm_index, y=GR2a_WSoilMoist60)) + geom_line(aes(color = stormID))
+p = p + labs(x = "5-minute periods since start of event")
+ggplotly(p)
+```
+
+```{r echo=FALSE, warning=FALSE}
+p = ggplot(data = datPlot, aes(x=storm_index, y=GR2a_B1PondDepth)) + geom_line(aes(color = stormID))
+p = p + labs(x = "5-minute periods since start of event")
+ggplotly(p)
+```
+
+```{r echo=FALSE, warning=FALSE}
+p = ggplot(data = datPlot, aes(x=storm_index, y=GR2a_B2PondDepth)) + geom_line(aes(color = stormID))
+p = p + labs(x = "5-minute periods since start of event")
+ggplotly(p)
+```
+
+```{r echo=FALSE, warning=FALSE}
+p = ggplot(data = datPlot, aes(x=storm_index, y=GR2a_GabionUDepth)) + geom_line(aes(color = stormID))
+p = p + labs(x = "5-minute periods since start of event")
+ggplotly(p)
+```
+
+```{r echo=FALSE, warning=FALSE}
+p = ggplot(data = datPlot, aes(x=storm_index, y=GR2a_GabionDDepth)) + geom_line(aes(color = stormID))
+p = p + labs(x = "5-minute periods since start of event")
+ggplotly(p)
+```

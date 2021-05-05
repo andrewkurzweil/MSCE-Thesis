@@ -1,0 +1,92 @@
+---
+title: "PennDOT Analysis - Preponding Volume"
+author: "Andrew Kurzweil"
+date: "28 Oct 2020"
+output: 
+  html_document: 
+    fig_height: 8
+    fig_width: 11
+---
+
+This notebook contains plots and ad-hoc analyses for my thesis, based on work done for the PennDOT project at SMP A.
+
+The pre-processor file must be run first, to load all data and calculated event statistics.
+
+```{r echo=FALSE, warning=FALSE, include=FALSE}
+library(ggplot2)
+library(plotly)
+library(dplyr)
+library(tidyr)
+
+# load data files to KNIT environment f
+load("K:/PennDOT DATA TEMP/DATA/SMPA_ALL_DATA.Rdata")
+load("K:/PennDOT DATA TEMP/DATA/SMPA_EVENT_STATS_ALL.Rdata")
+
+ponding_data = dat[,grep("TIMESTAMP|PondDepth|PondTemp|storm_index",names(dat))]
+
+names(ponding_data) = c("TIMESTAMP","B1_Pond_mm","B2_Pond_mm","B1_PondTemp","B2_PondTemp","StormIndex")
+#ts(ponding_data$B1_Pond_mm, start = min(ponding_data$TIMESTAMP), end = max(ponding_data$TIMESTAMP), frequency = 12)
+ponding_data$B1PondDelta = c(diff(ponding_data$B1_Pond_mm),0)
+ponding_data$B2PondDelta = c(diff(ponding_data$B2_Pond_mm),0)
+```
+
+```{r}
+attach(ponding_data)
+plot(TIMESTAMP,B1PondDelta)
+
+```
+
+
+
+```{r}
+ponding_data %>% 
+	filter(B1_Pond_mm < 400, B1PondDelta < 0, B1PondDelta > -50) %>% 
+	ggplot() + 
+	geom_point(aes(x = B1_Pond_mm, y = (-B1PondDelta*12), color = StormIndex))
+```
+
+```{r}
+ponding_data %>% 
+	filter(B2_Pond_mm > 25, B2_Pond_mm < 400) %>% 
+	ggplot() + 
+	geom_point(aes(x = B2_Pond_mm, y = log(B2PondDelta), color = B2_PondTemp))
+```
+```{r}
+ggplot(stats) + 
+	geom_point(aes(x = B1_0_100_pond_avg_depth_mm, y = -B1_0_100_pond_avg_recession_mm.hr)) +
+	geom_point(aes(x = B1_100_200_pond_avg_depth_mm, y = -B1_100_200_pond_avg_recession_mm.hr)) +
+	geom_point(aes(x = B1_200_300_pond_avg_depth_mm, y = -B1_200_300_pond_avg_recession_mm.hr)) +
+	geom_point(aes(x = B1_300_400_pond_avg_depth_mm, y = -B1_300_400_pond_avg_recession_mm.hr)) +
+	geom_point(aes(x = B1_gt_400_pond_avg_depth_mm, y = -B1_gt_400_pond_avg_recession_mm.hr))
+```
+
+```{r}
+ggplot(stats) +
+	geom_point(aes(x = B2_0_100_pond_avg_depth_mm, y = -B2_0_100_pond_avg_recession_mm.hr)) +
+	geom_point(aes(x = B2_100_200_pond_avg_depth_mm, y = -B2_100_200_pond_avg_recession_mm.hr)) +
+	geom_point(aes(x = B2_200_300_pond_avg_depth_mm, y = -B2_200_300_pond_avg_recession_mm.hr)) +
+	geom_point(aes(x = B2_300_400_pond_avg_depth_mm, y = -B2_300_400_pond_avg_recession_mm.hr)) +
+	geom_point(aes(x = B2_gt_400_pond_avg_depth_mm, y = -B2_gt_400_pond_avg_recession_mm.hr))
+```
+
+
+```{r}
+ggplot(
+	dat %>%
+		arrange(TIMESTAMP) %>%
+		filter(!is.na(stormID)) %>%
+		group_by(stormID) %>%
+		summarize(
+			'400+' = 12 * mean(B1PondDelta[B1PondDelta < -5 & GR2a_B1PondDepth > 400], na.rm = TRUE),
+			'300-400' = 12 * mean(B1PondDelta[B1PondDelta < -5 & GR2a_B1PondDepth > 300 & GR2a_B1PondDepth < 400], na.rm = TRUE),
+			'200-300' = 12 * mean(B1PondDelta[B1PondDelta < -5 & GR2a_B1PondDepth > 200 & GR2a_B1PondDepth < 300], na.rm = TRUE),
+			'100-200' = 12 * mean(B1PondDelta[B1PondDelta < -5 & GR2a_B1PondDepth > 100 & GR2a_B1PondDepth < 200], na.rm = TRUE),
+			'0-100' = 12 * mean(B1PondDelta[B1PondDelta < -5 & GR2a_B1PondDepth > 0 & GR2a_B1PondDepth < 100], na.rm = TRUE),
+		) %>%
+		pivot_longer(!stormID, names_to = 'Depth (mm)', values_to = 'Avg Recession Rate (mm/hr)')
+) +
+	geom_boxplot(aes(x = `Depth (mm)`, y = (-`Avg Recession Rate (mm/hr)`))) +
+	#scale_x_discrete(limits=c('400+','300-400','200-300','100-200','0-100')) +
+	labs(x = 'Pond Depth Bin (mm)', y = 'Average Recession Rate (mm/hr)', title = 'Average Storm Recession Rate Binned by Pond Depth')
+```
+

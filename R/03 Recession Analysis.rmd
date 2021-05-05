@@ -1,0 +1,317 @@
+---
+title: "Recession Rate Analysis"
+author: "Andrew Kurzweil"
+date: "16 Nov 2020"
+output:
+  html_document:
+    fig_height: 8
+    fig_width: 11
+---
+
+```{r}
+library(ggplot2)
+library(plotly)
+library(dplyr)
+library(tidyr)
+library(lubridate)
+
+# load data files to KNIT environment
+load("K:/PennDOT DATA TEMP/DATA/SMPA_ALL_DATA.Rdata")
+load("K:/PennDOT DATA TEMP/DATA/SMPA_EVENT_STATS_ALL.Rdata")
+
+give.n <- function(x) {
+	return(c(y = median(x) * 1.30, label = length(x) ))
+	# experiment with the multiplier to find the perfect position
+}
+```
+
+```{r}
+ggplot(
+	dat %>%
+		arrange(TIMESTAMP) %>%
+		filter(!is.na(stormID), between(12 * B1PondDelta,-400, 0)) %>%
+		group_by(stormID) %>%
+		summarize(
+			'400+' = 12 * mean(B1PondDelta[B1PondDelta < -5 &
+																		 	GR2a_B1PondDepth > 400], na.rm = TRUE),
+			'300-400' = 12 * mean(B1PondDelta[B1PondDelta < -5 &
+																					GR2a_B1PondDepth > 300 & GR2a_B1PondDepth < 400], na.rm = TRUE),
+			'200-300' = 12 * mean(B1PondDelta[B1PondDelta < -5 &
+																					GR2a_B1PondDepth > 200 & GR2a_B1PondDepth < 300], na.rm = TRUE),
+			'100-200' = 12 * mean(B1PondDelta[B1PondDelta < -5 &
+																					GR2a_B1PondDepth > 100 & GR2a_B1PondDepth < 200], na.rm = TRUE),
+			'0-100' = 12 * mean(B1PondDelta[B1PondDelta < -5 &
+																				GR2a_B1PondDepth > 0 & GR2a_B1PondDepth < 100], na.rm = TRUE),
+			.groups = 'drop_last'
+		) %>%
+		pivot_longer(!stormID, names_to = 'Depth (mm)', values_to = 'Avg Recession Rate (mm/hr)')
+) +
+	geom_boxplot(aes(x = `Depth (mm)`, y = (-`Avg Recession Rate (mm/hr)`))) +
+	#scale_x_discrete(limits=c('400+','300-400','200-300','100-200','0-100')) +
+	#scale_y_continuous(breaks = seq(10, 230, by = 20)) +
+	labs(x = 'Pond Depth Bin (mm)', y = 'Average Recession Rate (mm / hr)', title = 'Average Storm Recession Rate Binned by Pond Depth')
+```
+
+```{r}
+
+dat %>%
+	arrange(TIMESTAMP) %>%
+	filter(!is.na(stormID), B1PondDelta < 0, CS700Rain_in_TOT < 0.5) %>% 
+	filter(TIMESTAMP > ymd('2018-09-15')) %>% 
+	group_by(stormID) %>%
+	summarize(
+		'0-100' = 12 * mean(B1PondDelta[GR2a_B1PondDepth > 0 & GR2a_B1PondDepth < 100], na.rm = TRUE),
+		'100-200' = 12 * mean(B1PondDelta[GR2a_B1PondDepth > 100 & GR2a_B1PondDepth < 200], na.rm = TRUE),
+		'200-300' = 12 * mean(B1PondDelta[GR2a_B1PondDepth > 200 & GR2a_B1PondDepth < 300], na.rm = TRUE),
+		'300-400' = 12 * mean(B1PondDelta[GR2a_B1PondDepth > 300 & GR2a_B1PondDepth < 400], na.rm = TRUE),
+		'400+' = 12 * mean(B1PondDelta[GR2a_B1PondDepth > 400], na.rm = TRUE),
+		.groups = 'drop_last'
+	) %>%
+	pivot_longer(!stormID, names_to = 'Depth (mm)', values_to = 'Avg Recession Rate (mm/hr)') %>% 
+	ggplot() +
+	geom_boxplot(aes(x = `Depth (mm)`, y = (-`Avg Recession Rate (mm/hr)`))) +
+	#scale_x_discrete(limits=c('400+','300-400','200-300','100-200','0-100')) +
+	#scale_y_continuous(limits = c(20,170), breaks = seq(20, 170, by = 20)) +
+	labs(x = 'Pond Depth Bin (mm)', y = 'Average Recession Rate (mm/hr)', title = 'Average Storm Recession Rate Binned by Pond Depth')
+```
+
+
+```{r}
+temp = dat %>%
+		arrange(TIMESTAMP) %>%
+		filter(!is.na(stormID), B1PondDelta < 0) %>% 
+		filter(CS700Rain_in_TOT < 0.5) %>% 
+		filter(TIMESTAMP > ymd('2018-09-15')) %>% 
+		mutate(B1PondBin = cut(GR2a_B1PondDepth,breaks = c(0,100,200,300,400,500,1000)), .keep = 'all') %>% 
+		group_by(stormID) %>% #, B1PondBin) %>%
+		summarize(
+			MeanRecession = 12 * mean(B1PondDelta, na.rm = TRUE),
+			MeanPondDepth = mean(GR2a_B1PondDepth),
+			.groups = 'keep'
+		)# %>% 
+	ggplot(aes(x = B1PondBin, y = -MeanRecession)) +
+	geom_boxplot() +
+	stat_summary(fun.data = give.n, geom = "text", fun = median,
+                  position = position_dodge(width = 0.25)) +
+	labs(y = 'Recession Rate (mm/hr)', x = 'Pond Depth (mm)')
+	
+cor.test(temp$MeanRecession, temp$MeanPondDepth)
+lm(data = temp, MeanRecession ~ MeanPondDepth) %>% summary()
+```
+
+
+```{r}
+dat %>%
+		arrange(TIMESTAMP) %>%
+		filter(!is.na(stormID), B1PondDelta < 0) %>% 
+		filter(CS700Rain_in_TOT < 0.5) %>% 
+		filter(TIMESTAMP > ymd('2018-09-15')) %>% 
+#		mutate(B1PondBin = cut(GR2a_B1PondDepth,breaks = c(0,100,200,300,400,500,1000)), .keep = 'all') %>% 
+#		group_by(stormID, B1PondBin) %>%
+		# summarize(
+		# 	MeanRecession = 12 * mean(B1PondDelta, na.rm = TRUE),
+		# 	.groups = 'keep'
+		# ) %>% 
+	group_by(stormID) %>% 
+	arrange(stormID) %>% 
+	ggplot(aes(x = GR2a_B1PondDepth, y = B1PondDelta)) +
+	geom_boxplot() +
+	stat_summary(fun.data = give.n, geom = "text", fun = 'median',
+                  position = position_dodge(width = 0.25)) +
+	labs(y = 'Recession Rate (mm/hr)', x = 'Pond Depth (mm)')
+```
+
+
+
+```{r}
+dat %>%
+	arrange(TIMESTAMP) %>%
+	filter(!is.na(stormID), B1PondDelta < 0) %>% 
+	filter(CS700Rain_in_TOT < 0.5) %>% 
+	filter(TIMESTAMP > ymd('2018-09-15')) %>% 
+	ggplot(aes(x = GR2a_B1PondTemp, y = -B1PondDelta * 12)) +
+	geom_point() +
+	labs(y = 'Recession Rate (mm/hr)', x = 'Water Temperature (deg C)')
+```
+
+
+```{r}
+dat %>%
+	arrange(TIMESTAMP) %>%
+	# only keep points with valid stormID or negative pond delta (recession is NEGATIVE!!)
+	filter(!is.na(stormID), B1PondDelta < 0) %>% 
+	# only keep points where rainfall is very small
+	filter(CS700Rain_in_TOT < 0.5) %>% 
+	# remove points before Sept. 2018 installation of B1 orifice retrofit
+	filter(TIMESTAMP > ymd('2018-09-15')) %>% 
+	# group by storm for summarize
+	group_by(stormID) %>%
+	summarize(
+			MeanRecession = -12 * mean(B1PondDelta, na.rm = TRUE),
+			MeanTemperature = mean(GR2a_B1PondTemp, na.rm = TRUE),
+			date = min(TIMESTAMP),
+			.groups = 'keep'
+	) %>% 
+	ggplot(aes(x = MeanTemperature, y = MeanRecession, color = date)) +
+	geom_point() +
+	scale_y_continuous(limits = c(0,250)) +
+	labs(y = 'Recession Rate (mm/hr)', x = 'Water Temperature (deg C)')
+```
+
+
+
+```{r}
+temp = dat %>%
+	arrange(TIMESTAMP) %>%
+	filter(!is.na(stormID), B1PondDelta < 0) %>% 
+	filter(CS700Rain_in_TOT < 0.5) %>% 
+	filter(TIMESTAMP > ymd('2018-09-15')) %>% 
+	mutate(B1TempBin = cut(GR2a_B1PondTemp, breaks = 5),
+				 .keep = 'all') %>%
+	group_by(stormID) %>%  #, B1TempBin) %>%
+	summarize(MeanRecession = 12 * mean(B1PondDelta, na.rm = TRUE),
+						MeanPondTemp = mean(GR2a_B1PondTemp),
+						.groups = 'keep') %>%
+	arrange(stormID) #%>%
+	ggplot(aes(x = B1TempBin, y = -MeanRecession)) +
+	geom_boxplot() +
+	stat_summary(fun.data = give.n, geom = "text", fun = median,
+                  position = position_dodge(width = 0.75)) +
+	labs(y = 'Recession Rate (mm/hr)', x = 'Water Temperature (deg C)')
+
+cor.test(temp$MeanRecession, temp$MeanPondTemp)
+lm(data = temp, MeanRecession ~ MeanPondTemp) %>% summary()
+```
+
+
+
+```{r}
+library(purrr)
+dat %>%
+	arrange(TIMESTAMP) %>%
+	filter(!is.na(stormID), B1PondDelta < 0) %>%
+	mutate(B1PondBin = cut(GR2a_B1PondDepth, breaks = c(0, 100, 200, 300, 400, 1000)),
+				 .keep = 'all') %>%
+	group_by(stormID, B1PondBin) %>%
+	summarize(MeanRecession = 12 * mean(B1PondDelta, na.rm = TRUE),
+						.groups = 'keep') %>%
+	pivot_wider(names_from = B1PondBin, values_from = MeanRecession) %>%
+	mutate(t_test1 = map2('(0-100]', '(100-200]', ~{t.test(.x$value,.y$value) %>% tidy()}))
+```
+
+
+
+
+```{r}
+temp = dat %>%
+	arrange(TIMESTAMP) %>%
+	filter(!is.na(stormID), !is.na(B1PondDelta), !is.na(GR2a_RH), B1PondDelta < 0) %>% 
+	filter(CS700Rain_in_TOT < 0.5) %>% 
+	filter(TIMESTAMP > ymd('2018-09-15')) %>% 
+	mutate(SMPA_RH = cut(GR2a_RH, breaks = 5),
+				 .keep = 'all') %>%
+	group_by(stormID) %>%  #, SMPA_RH) %>%
+	summarize(MeanRecession = 12 * mean(B1PondDelta, na.rm = TRUE),
+						MeanRH = mean(GR2a_RH),
+						.groups = 'keep') %>%
+	arrange(stormID) #%>%
+	ggplot(aes(x = SMPA_RH, y = -MeanRecession)) +
+	geom_boxplot() +
+	stat_summary(fun.data = give.n, geom = "text", fun = median,
+                  position = position_dodge(width = 0.75)) +
+	labs(x = 'Relative Humidity (%)', y ='Average Ponding Recession Rate (mm/hr)')
+
+
+cor.test(temp$MeanRecession, temp$MeanRH)
+lm(data = temp, MeanRecession ~ MeanRH) %>% summary()
+```
+
+```{r}
+temp = dat %>%
+	arrange(TIMESTAMP) %>%
+	filter(!is.na(stormID), B1PondDelta < 0) %>% 
+	filter(CS700Rain_in_TOT < 0.5) %>% 
+	filter(TIMESTAMP > ymd('2018-09-15')) %>% 
+	mutate(SMPA_Pressure = cut(BP_mmHg_Avg, breaks = 5),
+				 
+				 .keep = 'all') %>%
+	group_by(stormID) %>% #, SMPA_Pressure) %>%
+	summarize(MeanRecession = 12 * mean(B1PondDelta, na.rm = TRUE),
+						MeanPressure = mean(BP_mmHg_Avg),
+						.groups = 'keep') %>%
+	arrange(stormID) # %>%
+	ggplot(aes(x = SMPA_Pressure, y = -MeanRecession)) +
+	geom_boxplot() +
+	stat_summary(fun.data = give.n, geom = "text", fun = median,
+                  position = position_dodge(width = 0.75)) +
+	labs(x = 'Barometric Pressure (mmHg)', y ='Average Ponding Recession Rate (mm/hr)')
+	
+	
+cor.test(temp$MeanRecession, temp$MeanPressure)
+lm(data = temp, MeanRecession ~ MeanPressure) %>% summary()
+```
+
+
+
+```{r}
+pond_model = dat %>%
+	arrange(TIMESTAMP) %>%
+	filter(!is.na(stormID)) %>% 
+	filter(B1PondDelta < 0) %>% 
+	filter(GR2a_B1PondDepth < 465) %>% 
+	filter(CS700Rain_in_TOT < 0.5) %>% 
+	filter(TIMESTAMP > ymd('2018-09-15')) %>% 
+	lm(data = ., formula = B1PondDelta ~ GR2a_B1PondDepth)
+summary(pond_model)
+```
+
+
+
+
+```{r}
+## attempting to determine where the high values are coming from
+View(dat %>% select(TIMESTAMP,CS700Rain_in_TOT,stormID,B1PondDelta,GR2a_B1PondDepth) %>% filter(!is.na(stormID)))
+dat %>% select(TIMESTAMP,CS700Rain_in_TOT,stormID,B1PondDelta,GR2a_B1PondDepth) %>% filter(B1PondDelta < -240/12, !is.na(stormID))
+```
+
+
+```{r}
+dat %>%
+	arrange(TIMESTAMP) %>%
+	filter(!is.na(stormID), B1PondDelta < 0) %>% 
+	filter(GR2a_B1PondDepth < 465) %>% 
+	filter(CS700Rain_in_TOT < 0.5) %>% 
+	filter(TIMESTAMP > ymd('2018-09-15')) %>% 
+	mutate(SMPA_Pressure = cut(GR2a_B1PondDepth, breaks = 5),
+				 .keep = 'all') %>%
+	group_by(stormID, SMPA_Pressure) %>%
+	summarize(MeanRecession = 12 * mean(B1PondDelta, na.rm = TRUE),
+						.groups = 'keep') %>%
+	arrange(stormID) %>%
+	ggplot(aes(x = SMPA_Pressure, y = -MeanRecession)) +
+	geom_boxplot() +
+	stat_summary(fun.data = give.n, geom = "text", fun = median,
+                  position = position_dodge(width = 0.75)) +
+	labs(x = 'Ponding Depth (mm)', y ='Average Ponding Recession Rate (mm/hr)')
+```
+
+
+```{r}
+ggplot(
+	dat %>%
+		arrange(TIMESTAMP) %>%
+		filter(!is.na(stormID), B2PondDelta < -5, B2PondDelta > -500) %>%
+		group_by(stormID) %>%
+		summarize(
+			'400+' = 12 * mean(B2PondDelta[GR2a_B2PondDepth > 0 & GR2a_B2PondDepth < 100], na.rm = TRUE),
+			'300-400' = 12 * mean(B2PondDelta[GR2a_B2PondDepth > 100 & GR2a_B2PondDepth < 200], na.rm = TRUE),
+			'200-300' = 12 * mean(B2PondDelta[GR2a_B2PondDepth > 200 & GR2a_B2PondDepth < 300], na.rm = TRUE),
+			'100-200' = 12 * mean(B2PondDelta[GR2a_B2PondDepth > 300 & GR2a_B2PondDepth < 400], na.rm = TRUE),
+			'0-100' = 12 * mean(B2PondDelta[GR2a_B2PondDepth > 400], na.rm = TRUE),
+		) %>%
+		pivot_longer(!stormID, names_to = 'Depth (mm)', values_to = 'Avg Recession Rate (mm/hr)')
+) +
+	geom_boxplot(aes(x = `Depth (mm)`, y = (-`Avg Recession Rate (mm/hr)`))) +
+	scale_x_discrete(limits=c('400+','300-400','200-300','100-200','0-100')) +
+	labs(x = 'Pond Depth Bin (mm)', y = 'Average Recession Rate (mm/hr)', title = 'Average Storm Recession Rate Binned by Pond Depth')
+```

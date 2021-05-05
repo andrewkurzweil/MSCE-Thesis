@@ -1,0 +1,620 @@
+---
+title: "05 Recession Timing"
+author: "Andrew Kurzweil"
+date: "2/4/2021"
+output: html_document
+---
+
+```{r echo=FALSE}
+library(ggplot2)
+library(plotly)
+library(dplyr)
+library(tidyr)
+library(bcp)
+library(imputeTS)
+library(data.table)
+
+# load data files to KNIT environment
+load("K:/PennDOT DATA TEMP/DATA/THESIS_DATA_112016_112020.Rdata")
+load("K:/PennDOT DATA TEMP/DATA/SMPA_EVENT_STATS_ALL.Rdata")
+
+give.n <- function(x) {
+	return(c(y = median(x) * 1.05, label = length(x)))
+	# experiment with the multiplier to find the perfect position
+}
+
+```
+
+```{r warning=FALSE}
+dat$stormID_48hr = assign.event.ids(dat$CS700Rain_in_TOT, 48)
+dat$stormID_24hr = assign.event.ids(dat$CS700Rain_in_TOT, 24)
+dat$stormID_12hr = assign.event.ids(dat$CS700Rain_in_TOT, 12)
+
+dat$stormID_ponding = assign.ponding.event.ids(
+	timestamps = dat$TIMESTAMP,
+	rainfall = dat$CS700Rain_in_TOT,
+	ponding = dat$GR2a_B1PondDepth,
+	pre_rain_window_mins = 0,
+	post_ponding_window_mins = 360,
+	min_event_duration_mins = 360
+)
+
+dat$stormID_smW10 = assign.soil_moisture.event.ids(
+	timestamps = dat$TIMESTAMP,
+	rainfall = dat$CS700Rain_in_TOT,
+	soil_moisture = dat$GR2a_WSoilMoist10,
+	pre_rain_window_mins = 0,
+	post_soil_moisture_window_mins = 360,
+	min_event_duration_mins = 360
+)
+```
+
+
+
+```{r STATS_GENERATOR, warning=FALSE}
+stats_ponding <- dat %>%
+	filter(!is.na(stormID_ponding)) %>% # remove NA stormID values (occurs when there's no event recorded)
+	arrange(TIMESTAMP) %>%      # order the dataframe by timestamp so things get calculated in chronological order
+	group_by(stormID_ponding) %>%       # group by stormID (ie perform all other operations on dat as grouped by stormID. this is how it becomes a pivot table.)
+	# summarize creates new columns with the names you specify according to the formulas you provide.
+	summarize(
+		# start of event is the smallest Timestamp, end of event is the largest
+		Storm_Event_Start_Time = min(TIMESTAMP),
+		Storm_Event_End_Time = max(TIMESTAMP),
+		# need just storm date (no time) for reports
+		Event_Date = date(min(TIMESTAMP)),
+		# Total rainfall is summed over event
+		Total_Rainfall_mm = sum(CS700Rain_in_TOT),
+		# Peak intensity is the highest single rainfall value (multipled by 12 for hourly rate, assuming 5 minute data)
+		Peak_Intensity_mm.hr = max(CS700Rain_in_TOT * 12),
+		Rainfall_Duration_min = sum(CS700Rain_in_TOT > 0) * 5,
+		Peak_15min_Intensity_mm.hr = max(rainfall_sum_15min) * 4,
+		Peak_30min_Intensity_mm.hr = max(rainfall_sum_30min) * 2,
+		
+		# max flowrates are just the instantaneous max values from previous calcs
+		N8_Max_Flowrate_CMS = max(N8_In_Flow_CMS),
+		N9_Max_Flowrate_CMS = max(N9_In_Flow_CMS),
+		N10_Max_Flowrate_CMS = max(N10_In_Flow_CMS),
+		N8_Hwy_Max_Flowrate_CMS = max(N8_Hwy_Flow_CMS),
+		N9_Hwy_Max_Flowrate_CMS = max(N9_Hwy_Flow_CMS),
+		
+		# Volumes are RATE * TIME summed over the entire storm. Assumes 5 minute (300 second) data
+		N8_Volume_m3 = sum(N8_In_Flow_CMS * 300),
+		N9_Volume_m3 = sum(N9_In_Flow_CMS * 300),
+		N10_Volume_m3 = sum(N10_In_Flow_CMS * 300),
+		N8_Hwy_Volume_m3 = sum(N8_Hwy_Flow_CMS * 300),
+		N9_Hwy_Volume_m3 = sum(N9_Hwy_Flow_CMS * 300),
+		
+		Flume_Volume_m3 = sum(Flume_Flow_LPS / 1000 * 300),
+		Flume_Max_Flowrate_CMS = max(Flume_Flow_LPS / 1000),
+		
+		B1_Outlet_Volume_m3 = sum(B1_Outlet_Flow_CMS * 300),
+		B2_Outlet_Volume_m3 = sum(B2_Outlet_Flow_CMS * 300),
+		
+		N8_peak_velocity_mm.s = max(GR2a_N8InletSpeed),
+		N9_peak_velocity_mm.s = max(GR2a_N9InletSpeed),
+		N10_peak_velocity_mm.s = max(GR2a_N10InletSpeed),
+		N8_hwy_peak_velocity_mm.s = max(GR2a_N8HwySpeed),
+		N9_hwy_peak_velocity_mm.s = max(GR2a_N9HwySpeed),
+		
+		# max (cumulative velocity) = sum (individual velocity data) ... not sure why I did it this way
+		N8_total_vel = max(N8_sumvel),
+		N9_total_vel = max(N9_sumvel),
+		N10_total_vel = max(N10_sumvel),
+		
+		B1_pond_max_depth_mm = max(GR2a_B1PondDepth),
+		B2_pond_max_depth_mm = max(GR2a_B2PondDepth),
+		
+		# these are not great estimates...poor definition of 'receding limb' & doesn't account for refilling
+		B1_pond_avg_recession_mm.hr = 12 * mean(GR2a_B1PondDepth[which(TIMESTAMP > TIMESTAMP[which.max(GR2a_B1PondDepth)])] - lead(GR2a_B1PondDepth[which(TIMESTAMP > TIMESTAMP[which.max(GR2a_B1PondDepth)])]), na.rm = TRUE),
+		B2_pond_avg_recession_mm.hr = 12 * mean(GR2a_B2PondDepth[which(TIMESTAMP > TIMESTAMP[which.max(GR2a_B2PondDepth)])] - lead(GR2a_B2PondDepth[which(TIMESTAMP > TIMESTAMP[which.max(GR2a_B2PondDepth)])]), na.rm = TRUE),
+		
+		# these account for possible refilling
+		B1_0_100_pond_avg_recession_mm.hr = 12 * mean(B1PondDelta[B1PondDelta < 0 &
+																																GR2a_B1PondDepth > 0 & GR2a_B1PondDepth < 100], na.rm = TRUE),
+		B1_100_200_pond_avg_recession_mm.hr = 12 * mean(B1PondDelta[B1PondDelta < 0 &
+																																	GR2a_B1PondDepth > 100 & GR2a_B1PondDepth < 200], na.rm = TRUE),
+		B1_200_300_pond_avg_recession_mm.hr = 12 * mean(B1PondDelta[B1PondDelta < 0 &
+																																	GR2a_B1PondDepth > 200 & GR2a_B1PondDepth < 300], na.rm = TRUE),
+		B1_300_400_pond_avg_recession_mm.hr = 12 * mean(B1PondDelta[B1PondDelta < 0 &
+																																	GR2a_B1PondDepth > 300 & GR2a_B1PondDepth < 400], na.rm = TRUE),
+		B1_gt_400_pond_avg_recession_mm.hr = 12 * mean(B1PondDelta[B1PondDelta < 0 &
+																															 	GR2a_B1PondDepth > 400], na.rm = TRUE),
+		
+		B1_0_100_pond_avg_depth_mm = mean(GR2a_B1PondDepth[GR2a_B1PondDepth > 0 &
+																											 	GR2a_B1PondDepth < 100], na.rm = TRUE),
+		B1_100_200_pond_avg_depth_mm = mean(GR2a_B1PondDepth[GR2a_B1PondDepth > 100 &
+																												 	GR2a_B1PondDepth < 200], na.rm = TRUE),
+		B1_200_300_pond_avg_depth_mm = mean(GR2a_B1PondDepth[GR2a_B1PondDepth > 200 &
+																												 	GR2a_B1PondDepth < 300], na.rm = TRUE),
+		B1_300_400_pond_avg_depth_mm = mean(GR2a_B1PondDepth[GR2a_B1PondDepth > 300 &
+																												 	GR2a_B1PondDepth < 400], na.rm = TRUE),
+		B1_gt_400_pond_avg_depth_mm = mean(GR2a_B1PondDepth[GR2a_B1PondDepth > 400], na.rm = TRUE),
+		
+		B2_0_100_pond_avg_recession_mm.hr = 12 * mean(B1PondDelta[B1PondDelta < 0 &
+																																GR2a_B1PondDepth > 0 & GR2a_B1PondDepth < 100], na.rm = TRUE),
+		B2_100_200_pond_avg_recession_mm.hr = 12 * mean(B1PondDelta[B1PondDelta < 0 &
+																																	GR2a_B1PondDepth > 100 & GR2a_B1PondDepth < 200], na.rm = TRUE),
+		B2_200_300_pond_avg_recession_mm.hr = 12 * mean(B1PondDelta[B1PondDelta < 0 &
+																																	GR2a_B1PondDepth > 200 & GR2a_B1PondDepth < 300], na.rm = TRUE),
+		B2_300_400_pond_avg_recession_mm.hr = 12 * mean(B1PondDelta[B1PondDelta < 0 &
+																																	GR2a_B1PondDepth > 300 & GR2a_B1PondDepth < 400], na.rm = TRUE),
+		B2_gt_400_pond_avg_recession_mm.hr = 12 * mean(B1PondDelta[B1PondDelta < 0 &
+																															 	GR2a_B1PondDepth > 400], na.rm = TRUE),
+		
+		B2_0_100_pond_avg_depth_mm = mean(GR2a_B2PondDepth[GR2a_B2PondDepth > 0 &
+																											 	GR2a_B2PondDepth < 100], na.rm = TRUE),
+		B2_100_200_pond_avg_depth_mm = mean(GR2a_B2PondDepth[GR2a_B2PondDepth > 100 &
+																												 	GR2a_B2PondDepth < 200], na.rm = TRUE),
+		B2_200_300_pond_avg_depth_mm = mean(GR2a_B2PondDepth[GR2a_B2PondDepth > 200 &
+																												 	GR2a_B2PondDepth < 300], na.rm = TRUE),
+		B2_300_400_pond_avg_depth_mm = mean(GR2a_B2PondDepth[GR2a_B2PondDepth > 300 &
+																												 	GR2a_B2PondDepth < 400], na.rm = TRUE),
+		B2_gt_400_pond_avg_depth_mm = mean(GR2a_B2PondDepth[GR2a_B2PondDepth > 400], na.rm = TRUE),
+		
+		B1_Pond_avg_temp = mean(GR2a_B1PondTemp),
+		B2_Pond_avg_temp = mean(GR2a_B2PondTemp),
+		
+		B1_ponding_duration_hr = sum(GR2a_B1PondDepth > 0) / 12,
+		B2_ponding_duration_hr = sum(GR2a_B2PondDepth > 0) / 12,
+		
+		B1_max_ponding_timestamp = TIMESTAMP[which.max(GR2a_B1PondDepth)],
+		B2_max_ponding_timestamp = TIMESTAMP[which.max(GR2a_B2PondDepth)],
+		
+		B1_end_ponding_timestamp = max(TIMESTAMP[which(GR2a_B1PondDepth > 10) + 1]),
+		B2_end_ponding_timestamp = max(TIMESTAMP[which(GR2a_B2PondDepth > 10) + 1]),
+		
+		W10_starts_saturated = is_saturated(GR2a_WSoilMoist10[1]),
+		
+		W10_A_timestamp = as.POSIXct(
+			identify_soil_moisture_inflection(
+					timestamps = TIMESTAMP,
+					data = GR2a_WSoilMoist10,
+					point_number = 1
+				),
+			origin = '1970-01-01 UTC',
+			tz = 'UTC'
+		),
+		W10_B_timestamp = as.POSIXct(
+			identify_soil_moisture_inflection(
+					timestamps = TIMESTAMP,
+					data = GR2a_WSoilMoist10,
+					point_number = 2
+				),
+			origin = '1970-01-01 UTC',
+			tz = 'UTC'
+		),
+		W10_C_timestamp = as.POSIXct(
+			identify_soil_moisture_inflection(
+					timestamps = TIMESTAMP,
+					data = GR2a_WSoilMoist10,
+					point_number = 3
+				),
+			origin = '1970-01-01 UTC',
+			tz = 'UTC'
+		),
+		W10_D_timestamp = as.POSIXct(
+			identify_soil_moisture_inflection(
+					timestamps = TIMESTAMP,
+					data = GR2a_WSoilMoist10,
+					point_number = 4
+				),
+			origin = '1970-01-01 UTC',
+			tz = 'UTC'
+		),
+		
+		W35_A_timestamp = as.POSIXct(
+			identify_soil_moisture_inflection(
+					timestamps = TIMESTAMP,
+					data = GR2a_WSoilMoist35,
+					point_number = 1
+				),
+			origin = '1970-01-01 UTC',
+			tz = 'UTC'
+		),
+		W35_B_timestamp = as.POSIXct(
+			identify_soil_moisture_inflection(
+					timestamps = TIMESTAMP,
+					data = GR2a_WSoilMoist35,
+					point_number = 2
+				),
+			origin = '1970-01-01 UTC',
+			tz = 'UTC'
+		),
+		W35_C_timestamp = as.POSIXct(
+			identify_soil_moisture_inflection(
+					timestamps = TIMESTAMP,
+					data = GR2a_WSoilMoist35,
+					point_number = 3
+				),
+			origin = '1970-01-01 UTC',
+			tz = 'UTC'
+		),
+		W35_D_timestamp = as.POSIXct(
+			identify_soil_moisture_inflection(
+					timestamps = TIMESTAMP,
+					data = GR2a_WSoilMoist35,
+					point_number = 4
+				),
+			origin = '1970-01-01 UTC',
+			tz = 'UTC'
+		),
+		
+		W60_A_timestamp = as.POSIXct(
+			identify_soil_moisture_inflection(
+					timestamps = TIMESTAMP,
+					data = GR2a_WSoilMoist60,
+					point_number = 1
+				),
+			origin = '1970-01-01 UTC',
+			tz = 'UTC'
+		),
+		W60_B_timestamp = as.POSIXct(
+			identify_soil_moisture_inflection(
+					timestamps = TIMESTAMP,
+					data = GR2a_WSoilMoist60,
+					point_number = 2
+				),
+			origin = '1970-01-01 UTC',
+			tz = 'UTC'
+		),
+		W60_C_timestamp = as.POSIXct(
+			identify_soil_moisture_inflection(
+					timestamps = TIMESTAMP,
+					data = GR2a_WSoilMoist60,
+					point_number = 3
+				),
+			origin = '1970-01-01 UTC',
+			tz = 'UTC'
+		),
+		W60_D_timestamp = as.POSIXct(
+			identify_soil_moisture_inflection(
+					timestamps = TIMESTAMP,
+					data = GR2a_WSoilMoist60,
+					point_number = 4
+				),
+			origin = '1970-01-01 UTC',
+			tz = 'UTC'
+		),
+		
+		.groups = "keep",
+		
+		#Ponding_Delay_hrs = as.double(difftime(min(TIMESTAMP[which(GR2a_B1PondDepth > 0 | GR2a_B2PondDepth > 0)]), min(TIMESTAMP), units = 'hours')),
+		
+		#B2_ponding_delay_hrs = as.double(difftime(min(TIMESTAMP[GR2a_B2PondDepth > 0]), min(TIMESTAMP[GR2a_B1PondDepth > 0]), units = 'hours'))
+	) %>%
+	# arrange events by start time
+	arrange(Storm_Event_Start_Time) %>%
+	# mutate creates new columns based on the columns just created by summarize.
+	mutate(
+		Event_Duration_hr = as.double(
+			difftime(Storm_Event_End_Time, Storm_Event_Start_Time, units = "hours")
+		),
+		Average_Intensity_mm.hr = Total_Rainfall_mm / (Event_Duration_hr - 6),
+		
+		Inlet_Total_Volume_m3 = N8_Volume_m3 + N9_Volume_m3 + N10_Volume_m3,
+		
+		HWY_Total_Volume_m3 = N8_Hwy_Volume_m3 + N9_Hwy_Volume_m3,
+		
+		Outlet_Total_Volume_m3 = B1_Outlet_Volume_m3 + B2_Outlet_Volume_m3,
+		
+		Time_Since_Previous_Event_hr = as.double(difftime(
+			Storm_Event_Start_Time, lag(Storm_Event_End_Time, 1), units = "hours"
+		)),
+		
+		B1_end_pond_to_W10_end_sat_hrs = as.double(
+			difftime(W10_C_timestamp, B1_end_ponding_timestamp, units = "hours")
+		),
+		
+		W10_to_W35_hrs = as.double(difftime(W35_C_timestamp, W10_C_timestamp, units = 'hours')),
+		
+		W35_to_W60_hrs = as.double(difftime(W60_C_timestamp, W35_C_timestamp, units = 'hours')),
+		
+		#B2_preponding_volume_m3 = Ponding_Delay_hrs * 50 * 175 / 1000, # assuming 50 mm/hr abstraction, 175 m^2 surface area
+		# TODO: need to find unsaturated K
+		
+		#B2_ponding_infiltration_volume_m3 = B2_ponding_duration_hr * B2_pond_avg_recession_mm.hr * 175 / 1000,
+		
+		#Total_Volume_captured_m3 = B2_preponding_volume_m3 + B2_ponding_infiltration_volume_m3,
+		
+		#Drainage_Area_m2 = Total_Volume_captured_m3 / Total_Rainfall_mm,
+		
+	)
+```
+
+
+```{r}
+dat %>%
+	#filter(stormID == 'a8623845') %>% # 07-10-2020 ~4in storm
+	#filter(stormID == '37d73f34') %>% # 10-11-2020 ~1.125 in storm
+	#filter(stormID_ponding == '37cb6526') %>% # d90e8e97, 295a1a92, 37cb6526
+	filter(stormID_smW10 == '6437be90') %>% #
+	dplyr::select(TIMESTAMP, GR2a_WSoilMoist10, CS700Rain_in_TOT, GR2a_B1PondDepth) %>%
+	arrange(TIMESTAMP) %>%
+	mutate(
+		diff = na_replace(GR2a_WSoilMoist10 - lag(GR2a_WSoilMoist10)),
+		diff2 = na_replace(diff - lag(diff)),
+		#diff2 = na_replace(((movavg(GR2a_WSoilMoist10, n = 4, type = 's') - lag(movavg(GR2a_WSoilMoist10, n = 4, type = 's'))) - lag(movavg(GR2a_WSoilMoist10, n = 4, type = 's') - lag(movavg(GR2a_WSoilMoist10, n = 4, type = 's'))))**0.25),
+	) %>% 
+#	findpeaks(diff, npeaks = 3) )
+	ggplot() +
+	geom_line(aes(x = TIMESTAMP, y = GR2a_WSoilMoist10), color = 'red') +
+	#geom_line(aes(x = TIMESTAMP, y = GR2a_B1PondDepth*0.05)) +
+	#geom_line(aes(x = TIMESTAMP, y = CS700Rain_in_TOT*50), color = 'red') +
+	#geom_line(aes(x = TIMESTAMP, y = diff), color = "blue") +
+	geom_vline(aes(xintercept = TIMESTAMP[findpeaks(abs(diff), npeaks = 4, minpeakdistance = 2)[1,2]-1])) +
+	geom_vline(aes(xintercept = TIMESTAMP[findpeaks(abs(diff), npeaks = 4, minpeakdistance = 2)[2,2]])) +
+	geom_vline(aes(xintercept = TIMESTAMP[findpeaks(abs(diff), npeaks = 4, minpeakdistance = 2)[3,2]-1])) +
+	geom_vline(aes(xintercept = TIMESTAMP[findpeaks(abs(diff), npeaks = 4, minpeakdistance = 2)[4,2]])) +
+	labs(x = "Date/Time (EST)", y = "10cm Soil Moisture (VWC)")
+
+
+```
+
+```{r duration vs ponding gap}
+ggplotly(
+	stats_ponding %>% 
+	#stats_sm %>% 
+	filter(!is.na(B1_end_ponding_timestamp)) %>% 
+	filter(!is.na(W10_C_timestamp)) %>% 
+	filter(B1_end_ponding_timestamp < W10_C_timestamp) %>% 
+	filter(!is.na(B1_Pond_avg_temp) && B1_end_pond_to_W10_end_sat_hrs < 15)  %>% 
+	ggplot() +
+	geom_point(aes(x = Event_Duration_hr, y = B1_end_pond_to_W10_end_sat_hrs)) +
+	labs(x = 'Total Event Duration (hours)', y = 'End of Ponding to Desaturation of 10cm Soil (hours)') )
+```
+
+```{r ponding gap valid data}
+stats_ponding %>% 
+	filter(!is.na(B1_end_ponding_timestamp)) %>% 
+	filter(!is.na(W10_C_timestamp)) %>% 
+	filter(B1_end_ponding_timestamp < W10_C_timestamp) %>% 
+	filter(!is.na(B1_Pond_avg_temp) && B1_end_pond_to_W10_end_sat_hrs < 30)
+```
+
+
+```{r}
+#stats_sm %>% 
+stats_ponding %>% 
+	filter(!(is.na(B1_end_ponding_timestamp) || B1_end_pond_to_W10_end_sat_hrs == Inf )) %>% 
+	filter(!is.na(W10_C_timestamp)) %>% 
+	filter(B1_end_ponding_timestamp < W10_C_timestamp) %>% 
+	filter(!is.na(B1_Pond_avg_temp))  %>% 
+	filter(B1_end_pond_to_W10_end_sat_hrs < 30) %>% 
+	ggplot() +
+	geom_point(aes(x = Event_Duration_hr, y = B1_end_pond_to_W10_end_sat_hrs)) +
+	labs(x = 'Total Event Duration (hours)', y = 'End of Ponding to Desaturation of 10cm Soil (hours)')
+```
+```{r rainfall vs ponding gap}
+#stats_sm %>% 
+stats_ponding %>% 
+	filter(!(is.na(B1_end_ponding_timestamp) || B1_end_pond_to_W10_end_sat_hrs == Inf )) %>% 
+	filter(!is.na(W10_C_timestamp)) %>% 
+	filter(B1_end_ponding_timestamp < W10_C_timestamp) %>% 
+	filter(!is.na(B1_Pond_avg_temp))  %>% 
+	filter(B1_end_pond_to_W10_end_sat_hrs < 30) %>% 
+	ggplot() +
+	geom_point(aes(x = Total_Rainfall_mm, y = B1_end_pond_to_W10_end_sat_hrs)) +
+	labs(x = 'Total Rainfall Depth (mm)', y = 'End of Ponding to Desaturation of 10cm Soil (hours)')
+```
+
+
+```{r pond temp vs ponding gap}
+#stats_sm %>% 
+stats_ponding %>% 
+	filter(!(is.na(B1_end_ponding_timestamp) || B1_end_pond_to_W10_end_sat_hrs == Inf )) %>% 
+	filter(!is.na(W10_C_timestamp)) %>% 
+	filter(B1_end_ponding_timestamp < W10_C_timestamp) %>% 
+	filter(!is.na(B1_Pond_avg_temp))  %>% 
+	filter(B1_end_pond_to_W10_end_sat_hrs < 30) %>% 
+	ggplot() +
+	geom_point(aes(x = B1_Pond_avg_temp, y = B1_end_pond_to_W10_end_sat_hrs)) +
+	labs(x = 'Average Ponded Water Temperature (deg C)', y = 'End of Ponding to Desaturation of 10cm Soil (hours)')
+```
+
+```{r max pond depth vs ponding gap}
+#stats_sm %>% 
+stats_ponding %>% 
+	filter(!(is.na(B1_end_ponding_timestamp) || B1_end_pond_to_W10_end_sat_hrs == Inf )) %>% 
+	filter(!is.na(W10_C_timestamp)) %>% 
+	filter(B1_end_ponding_timestamp < W10_C_timestamp) %>% 
+	filter(!is.na(B1_Pond_avg_temp))  %>% 
+	filter(B1_end_pond_to_W10_end_sat_hrs < 30) %>% 
+	ggplot() +
+	geom_point(aes(x = B1_pond_max_depth_mm, y = B1_end_pond_to_W10_end_sat_hrs)) +
+	labs(x = 'Max Pond Depth (mm)', y = 'End of Ponding to Desaturation of 10cm Soil (hours)')
+```
+
+
+```{r ponding gap histogram}
+#stats_sm %>% 
+stats_ponding %>% 
+	filter(!(is.na(B1_end_ponding_timestamp) || B1_end_pond_to_W10_end_sat_hrs == Inf )) %>% 
+	filter(!is.na(W10_C_timestamp)) %>% 
+	filter(B1_end_ponding_timestamp < W10_C_timestamp) %>% 
+	filter(!is.na(B1_Pond_avg_temp))  %>% 
+	filter(B1_end_pond_to_W10_end_sat_hrs < 30) %>% 
+	#group_by('none') %>% 
+	#summarise(x = mean(B1_end_pond_to_W10_end_sat_hrs))
+	ggplot() +
+	geom_histogram(aes(x = B1_end_pond_to_W10_end_sat_hrs)) +
+	labs(y = 'Count', x = 'End of Ponding to Desaturation of 10cm Soil (hours)')
+```
+
+
+
+```{r date vs ponding gap}
+#stats_sm %>% 
+stats_ponding %>% 
+	filter(!(is.na(B1_end_ponding_timestamp) || B1_end_pond_to_W10_end_sat_hrs == Inf )) %>% 
+	filter(!is.na(W10_C_timestamp)) %>% 
+	filter(B1_end_ponding_timestamp < W10_C_timestamp) %>% 
+	filter(!is.na(B1_Pond_avg_temp))  %>% 
+	filter(B1_end_pond_to_W10_end_sat_hrs < 30) %>% 
+	ggplot() +
+	geom_point(aes(x = Event_Date, y = B1_end_pond_to_W10_end_sat_hrs, color = B1_Pond_avg_temp)) +
+	labs(x = 'Event Date', y = 'End of Ponding to Desaturation of 10cm Soil (hours)')
+```
+
+
+```{r regression 1}
+model = stats_ponding %>% 
+	filter(!(is.na(B1_end_ponding_timestamp) || B1_end_pond_to_W10_end_sat_hrs == Inf )) %>% 
+	filter(!is.na(W10_C_timestamp)) %>% 
+	filter(B1_end_ponding_timestamp < W10_C_timestamp) %>% 
+	filter(!is.na(B1_Pond_avg_temp))  %>% 
+	filter(B1_end_pond_to_W10_end_sat_hrs < 30) %>% 
+	dplyr::select(B1_end_pond_to_W10_end_sat_hrs, B1_Pond_avg_temp, B1_pond_max_depth_mm, B1_pond_avg_recession_mm.hr, Event_Duration_hr, B1_ponding_duration_hr, Total_Rainfall_mm, Average_Intensity_mm.hr, stormID_ponding) %>% 
+lm(data = ., B1_end_pond_to_W10_end_sat_hrs ~ - 1 + . - stormID_ponding - B1_pond_max_depth_mm - B1_pond_avg_recession_mm.hr - Average_Intensity_mm.hr - Total_Rainfall_mm)
+	#lm(data = ., B1_end_pond_to_W10_end_sat_hrs ~ B1_Pond_avg_temp)
+summary(model)
+anova(model)
+```
+
+
+
+
+
+
+# ------------------------------------------
+# W10 to W35
+# ------------------------------------------
+
+
+```{r ponding gap valid data}
+stats_ponding %>% 
+	filter(!is.na(W10_to_W35_hrs)) %>% 
+	filter(W10_to_W35_hrs > 0) # %>% 
+	filter(!is.na(B1_Pond_avg_temp) && B1_end_pond_to_W10_end_sat_hrs < 30)
+```
+
+
+
+```{r pond temp vs ponding gap}
+#stats_sm %>% 
+stats_ponding %>% 
+	filter(!is.na(W10_to_W35_hrs)) %>% 
+	filter(W10_to_W35_hrs > 0) %>% 
+	ggplot() +
+	geom_histogram(aes(x = W10_to_W35_hrs)) +
+	labs(y = 'Count', x = 'Time between End of Saturation at 10cm and 35cm (hours)')
+```
+
+```{r pond temp vs ponding gap}
+#stats_sm %>% 
+stats_ponding %>% 
+	filter(!is.na(B1_end_pond_to_W10_end_sat_hrs)) %>% 
+	filter(B1_end_pond_to_W10_end_sat_hrs > 0) %>% 
+	dplyr::select(B1_end_pond_to_W10_end_sat_hrs) %>% 
+	Hmisc::describe()
+```
+
+```{r pond temp vs ponding gap}
+#stats_sm %>% 
+stats_ponding %>% 
+	filter(!is.na(W10_to_W35_hrs)) %>% 
+	filter(W10_to_W35_hrs > 0) %>% 
+	dplyr::select(W10_to_W35_hrs) %>% 
+	Hmisc::describe()
+```
+
+```{r pond temp vs ponding gap}
+#stats_sm %>% 
+stats_ponding %>% 
+	filter(!is.na(W35_to_W60_hrs)) %>% 
+	filter(W35_to_W60_hrs > 0) %>% 
+	ggplot() +
+	geom_histogram(aes(x = W35_to_W60_hrs)) +
+	labs(y = 'Count', x = 'Time between End of Saturation at 35cm and 60cm (hours)')
+```
+
+
+```{r pond temp vs ponding gap}
+#stats_sm %>% 
+stats_ponding %>% 
+	filter(!is.na(W35_to_W60_hrs)) %>% 
+	filter(W35_to_W60_hrs > 0) %>% 
+	dplyr::select(W35_to_W60_hrs) %>% 
+	Hmisc::describe()
+```
+
+
+
+```{r pond temp vs ponding gap}
+#stats_sm %>% 
+stats_ponding %>% 
+	filter(!is.na(W10_to_W35_hrs)) %>% 
+	filter(W10_to_W35_hrs > 0) %>% 
+	ggplot() +
+	geom_point(aes(x = B1_Pond_avg_temp, y = 25/W10_to_W35_hrs)) +
+	labs(x = 'Average Ponded Water Temperature (deg C)', y = 'Infiltration Rate 10cm to 35cm (cm/hour)')
+```
+
+
+
+
+
+```{r}
+cor.test(stats_ponding$W10_to_W35_hrs, stats_ponding$B1_Pond_avg_temp, method = 'kendall')
+cor.test(stats_ponding$W10_to_W35_hrs, stats_ponding$B1_pond_max_depth_mm, method = 'kendall')
+cor.test(stats_ponding$W10_to_W35_hrs, stats_ponding$Event_Duration_hr, method = 'kendall')
+cor.test(stats_ponding$W10_to_W35_hrs, stats_ponding$B1_ponding_duration_hr, method = 'kendall')
+cor.test(stats_ponding$W10_to_W35_hrs, stats_ponding$Total_Rainfall_mm, method = 'kendall')
+cor.test(stats_ponding$W10_to_W35_hrs, stats_ponding$Average_Intensity_mm.hr, method = 'kendall')
+
+```
+
+
+```{r}
+stats_ponding %>% 
+	filter(!is.na(W10_to_W35_hrs)) %>% 
+	filter(W10_to_W35_hrs > 0) %>% 
+	ggplot() +
+	geom_point(aes(x = Peak_Intensity_mm.hr, y = 25/W10_to_W35_hrs)) +
+	labs(x = 'Peak Rainfall Intensity (mm/hr)', y = 'Infiltration Rate 10cm to 35cm (cm/hour)')
+```
+
+
+
+## Low Flow Plots
+
+
+
+
+```{r}
+dat %>%
+	filter(stormID == '3182ac0a') %>% # 10-16-2020, 29.7mm
+	#filter(stormID == '37d73f34') %>% # 10-11-2020 ~1.125 in storm
+	#filter(stormID_ponding == '37cb6526') %>% # d90e8e97, 295a1a92, 37cb6526
+	#filter(stormID_smW10 == '6437be90') %>% #
+	dplyr::select(TIMESTAMP, N8_LF_Depth_Avg, CS700Rain_in_TOT) %>%
+	arrange(TIMESTAMP) %>%
+	ggplot() +
+	geom_line(aes(x = TIMESTAMP, y = N8_LF_Depth_Avg), color = 'red') +
+	geom_line(aes(x = TIMESTAMP, y = CS700Rain_in_TOT), color = 'blue') +
+	labs(x = "Date/Time (EST)", y = "N9 Low Flow Depth (mm - Red) // Rainfall (mm - Blue)")
+```
+
+
+```{r}
+dat %>%
+	filter(stormID == '3182ac0a') %>% # 10-16-2020, 29.7mm
+	dplyr::select(TIMESTAMP, N9_LF_Depth_Avg, CS700Rain_in_TOT) %>%
+	dplyr::mutate(
+		depth = N9_LF_Depth_Avg - 85,
+		flow = -0.0000007 * depth**3 + 0.0002 * depth**2 + 0.0023 * depth
+	) %>% 
+	summarize(totalinflow = sum(flow*300),totalrainfall = sum(CS700Rain_in_TOT))
+	arrange(TIMESTAMP) %>%
+	ggplot() +
+	geom_line(aes(x = TIMESTAMP, y = flow), color = 'red') +
+	labs(x = "Date/Time (EST)", y = "N9 Low Flow (L/s)")
+```
+
+
+
+
+
+
+
+

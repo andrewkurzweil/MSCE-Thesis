@@ -1,0 +1,172 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Document Class Definition
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\documentclass[%
+     % twoside=false,           % onesite or twoside printing
+    %openright,              % doublepage cleaning ends up right side
+    parskip=half,           % spacing value / method for paragraphs
+    11pt,                   % font size
+    headings=normal,        % size of headings
+    bibliography=totoc,     % include bib in toc
+    listof=totoc,           % include listof entries in toc
+    titlepage=on,           % own page for each title page
+    captions=tableabove,    % display table captions above the float env
+    chapterprefix=false,    % do not display a prefix for chapters
+    appendixprefix=false,    % but display a prefix for appendix chapter
+	draft=false,            % value for draft version
+]{scrreprt}%
+
+
+
+% **************************************************
+% Setup YOUR thesis document in this file !
+% **************************************************
+\input{setup}
+\usepackage{geometry}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{gensymb}
+\usepackage{scrlayer-scrpage}
+\usepackage{multirow}
+\usepackage{makecell}
+\usepackage{rotating}
+\usepackage{lscape}
+\usepackage{listings}
+\usepackage{hyperref}
+\AfterPackage*{cleanthesis}{
+	\geometry{
+		letterpaper,
+		text = {7in, 9in},
+		left = 1in,
+		right = 1in,
+		top = 1in,
+	 	footskip = 1.75in,
+	}
+	\renewcommand{\ctfooterleftpagenumber}{ }
+	\renewcommand{\ctfooterrightpagenumber}{ }
+	\renewcommand{\ctchapternumber}{ }
+	\renewcommand*\chapterheadstartvskip{\vspace*{-15em}}
+}
+
+\usepackage{xcolor}
+
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{backcolour}{rgb}{0.95,0.95,0.92}
+
+\lstdefinestyle{mystyle}{
+    backgroundcolor=\color{backcolour},   
+    commentstyle=\color{codegreen},
+    keywordstyle=\color{magenta},
+    %numberstyle=\color{codegray},
+    stringstyle=\color{codepurple},
+    basicstyle=\ttfamily\footnotesize,
+    breakatwhitespace=true,         
+    breaklines=true,                 
+    captionpos=b,                    
+    keepspaces=true,                 
+    %numbers=left,                    
+    %numbersep=5pt,                  
+    showspaces=false,                
+    showstringspaces=false,
+    showtabs=false,                  
+    tabsize=2
+}
+
+\lstset{style=mystyle}
+
+% **************************************************
+% Document CONTENT
+% **************************************************
+\begin{document}
+
+% uncomment the following command to fill up pages with
+% whitespace instead of aligning the first and last lines
+% of a page (see \raggedbottom vs. \flushbottom)
+%\raggedbottom
+
+% --------------------------
+% rename document parts
+% --------------------------
+
+% > set short label names for floating environments figure and table
+%\renewcaptionname{ngerman}{\figurename}{Abb.}
+%\renewcaptionname{ngerman}{\tablename}{Tab.}
+\renewcaptionname{english}{\figurename}{Figure}
+\renewcaptionname{english}{\tablename}{Table}
+
+% > rename the title of the LOL, i.e. list of listings (default is "Listings")
+\renewcommand*{\lstlistlistingname}{List of Listings}
+\renewcommand*{\contentsname}{Table of Contents}
+
+% --------------------------
+% Front matter
+% --------------------------
+\pagenumbering{roman}			% roman page numbing (invisible for empty page style)
+\pagestyle{empty}				% no header or footers
+\input{content/titlepages}		% INCLUDE: all titlepages
+\cleardoublepage
+
+\pagestyle{plain}				% display just page numbers
+\setcounter{page}{1}			% set page counter
+\input{content/abstract}		% INCLUDE: the abstract
+\cleardoublepage
+%
+\input{content/acknowledgement} % INCLUDE: acknowledgement
+\cleardoublepage
+%
+%\currentpdfbookmark{\contentsname}{toc}
+\setcounter{tocdepth}{2}		% define depth of toc
+\tableofcontents				% display table of contents
+\clearpage
+
+\listoffigures
+\clearpage
+
+\listoftables
+\clearpage
+
+%\lstlistoflistings
+%\clearpage
+
+% --------------------------
+% Body matter
+% --------------------------
+\pagenumbering{arabic}			% arabic page numbering
+\setcounter{page}{1}			% set page counter
+\pagestyle{plain}				% header and footer style
+
+\input{content/chapter-introduction}
+\input{content/chapter-data-collection}
+\input{content/chapter-data-storage}
+\input{content/chapter-data-analysis}
+\input{content/chapter-conclusion}
+
+% --------------------------
+% Back matter
+% --------------------------
+%
+{%
+\setstretch{1.1}
+\renewcommand{\bibfont}{\normalfont\small}
+\setlength{\biblabelsep}{0pt}
+\setlength{\bibitemsep}{0.5\baselineskip plus 0.5\baselineskip}
+\printbibliography{}
+%\newrefcontext[labelprefix={@}]
+%\printbibliography[heading=subbibliography,title={Webpages}]
+}
+\cleardoublepage
+
+\appendix \cleardoublepage
+\input{content/chapter-appendix}       % INCLUDE: appendix
+
+%\cleardoublepage
+%\input{content/declaration}
+
+%\mbox{}
+
+% **************************************************
+% End of Document CONTENT
+% **************************************************
+\end{document}

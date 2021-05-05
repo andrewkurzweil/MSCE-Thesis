@@ -1,0 +1,81 @@
+% !TEX root = main.tex
+
+
+% **************************************************
+% Files' Character Encoding
+% **************************************************
+\PassOptionsToPackage{utf8}{inputenc}
+\usepackage{inputenc}
+\usepackage{scrhack}
+
+% **************************************************
+% Information and Commands for Reuse
+% **************************************************
+\newcommand{\thesisTitle}{Leveraging Data for Green Infrastructure Performance Analysis and Prediction}
+\newcommand{\thesisName}{Andrew Kurzweil}
+\newcommand{\thesisSubject}{Green Infrastructure, Data, Statistics, Performance Analysis}
+\newcommand{\thesisDate}{May 2021}
+\newcommand{\thesisVersion}{0.0.1}
+
+\newcommand{\thesisFirstReviewer}{Robert G. Traver, Ph.D., P.E., D. WRE, F.EWRI, F.ASCE}
+\newcommand{\thesisFirstReviewerUniversity}{\protect{Villanova University}}
+\newcommand{\thesisFirstReviewerDepartment}{Department of Civil and Environmental Engineering}
+
+\newcommand{\thesisSecondReviewer}{Bridget Wadzuk, Ph.D.}
+\newcommand{\thesisSecondReviewerUniversity}{\protect{Villanova University}}
+\newcommand{\thesisSecondReviewerDepartment}{Department of Civil and Environmental Engineering}
+
+\newcommand{\thesisThirdReviewer}{Gerald Zaremba, Ph.D.}
+\newcommand{\thesisThirdReviewerUniversity}{\protect{Villanova University}}
+\newcommand{\thesisThirdReviewerDepartment}{Department of Civil and Environmental Engineering}
+
+\newcommand{\thesisUniversity}{\protect{Villanova University}}
+\newcommand{\thesisUniversityDepartment}{Department of Civil and Environmental Engineering}
+\newcommand{\thesisUniversityInstitute}{Center for Resilient Water Systems}
+\newcommand{\thesisUniversityGroup}{College of Engineering}
+\newcommand{\thesisUniversityCity}{Villanova, Pennsylvania}
+\newcommand{\thesisUniversityStreetAddress}{800 East Lancaster Avenue}
+\newcommand{\thesisUniversityPostalCode}{19085}
+
+
+% **************************************************
+% Debug LaTeX Information
+% **************************************************
+%\listfiles
+
+
+% **************************************************
+% Load and Configure Packages
+% **************************************************
+\usepackage[english]{babel} % babel system, adjust the language of the content
+\PassOptionsToPackage{% setup clean thesis style
+    figuresep=colon,%
+    hangfigurecaption=false,%
+    hangsection=false,%
+    hangsubsection=false,%
+    sansserif=false,%
+    configurelistings=true,%
+    colorize=bw,%
+    configurebiblatex=true,%
+    bibsys=bibtex,%
+    bibfile=library,%
+    bibstyle=authoryear,%
+    bibsorting=nty,%
+}{cleanthesis}
+\usepackage{cleanthesis}
+
+\hypersetup{% setup the hyperref-package options
+    pdftitle={\thesisTitle},    %   - title (PDF meta)
+    pdfsubject={\thesisSubject},%   - subject (PDF meta)
+    pdfauthor={\thesisName},    %   - author (PDF meta)
+    colorlinks=false,           %   - colorize links?
+    pdfborder={0 0 0},          %   -
+    breaklinks=true,            %   - allow line break inside links
+    bookmarksnumbered=true,     %
+    bookmarksopen=false          %
+}
+
+% **************************************************
+% Other Packages
+% **************************************************
+\usepackage{scrhack}

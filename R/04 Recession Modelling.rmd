@@ -1,0 +1,108 @@
+---
+title: "04 Recession Model"
+author: "Andrew Kurzweil"
+date: "1/12/2021"
+output: html_document
+---
+
+```{r}
+library(ggplot2)
+library(plotly)
+library(dplyr)
+library(tidyr)
+
+# load data files to KNIT environment
+#load("K:/PennDOT DATA TEMP/DATA/SMPA_ALL_DATA.Rdata")
+load("K:/PennDOT DATA TEMP/DATA/SMPA_EVENT_STATS_ALL.Rdata")
+
+give.n <- function(x){
+  return(c(y = median(x)*1.05, label = length(x))) 
+  # experiment with the multiplier to find the perfect position
+}
+```
+
+
+```{r}
+dat %>%
+		arrange(TIMESTAMP) %>%
+		filter(!is.na(stormID), B1PondDelta < 0) %>% 
+		filter(CS700Rain_in_TOT < 0.5) %>% 
+		filter(TIMESTAMP > ymd('2018-09-15')) %>% 
+		mutate(B1PondBin = cut(GR2a_B1PondDepth,breaks = c(0,100,200,300,400,500,1000)), .keep = 'all') %>% 
+		group_by(stormID, B1PondBin) %>%
+		summarize(
+			MeanRecession = 12 * mean(B1PondDelta, na.rm = TRUE),
+			.groups = 'keep'
+		) %>% 
+	arrange(stormID) %>% 
+	ggplot(aes(x = B1PondBin, y = -MeanRecession)) +
+	geom_boxplot() +
+	stat_summary(fun.data = give.n, geom = "text", fun = median,
+                  position = position_dodge(width = 0.75))
+```
+
+
+```{r event length histogram}
+stats %>% 
+	filter(Total_Rainfall_mm > 12.5) %>%
+	ggplot() + 
+	geom_histogram(aes(x = Event_Duration_hr), bins = 60) + 
+	#stat_function(fun = pchisq, args = list(df = 200))
+	labs(x = "Event Duration (hr)", y = "Count")
+```
+
+```{r event length histogram}
+stats %>% 
+	#filter(Total_Rainfall_mm > 12.5) %>% 
+	ggplot() + 
+	geom_histogram(aes(x = Total_Rainfall_mm), bins = 90) + 
+	#stat_function(fun = pchisq, args = list(df = 200))
+	labs(x = "Total Rainfall (mm)", y = "Count")
+```
+
+```{r}
+model = stats %>%
+	filter(Total_Rainfall_mm > 6) %>%
+	dplyr::select(
+		B1_Pond_avg_temp,
+		B1_pond_max_depth_mm,
+		B1_pond_avg_recession_mm.hr,
+		Event_Duration_hr,
+		B1_ponding_duration_hr,
+		Total_Rainfall_mm,
+		Average_Intensity_mm.hr,
+		Event_Date
+	) %>%
+	#lm(data = ., B1_pond_avg_recession_mm.hr ~ B1_Pond_avg_temp - 1)
+	lm(data = ., -B1_pond_avg_recession_mm.hr ~ - 1 + B1_Pond_avg_temp + B1_pond_max_depth_mm + B1_ponding_duration_hr + Total_Rainfall_mm + Average_Intensity_mm.hr)
+
+summary(model)
+plot(model)
+
+#plot(log(stats$B1_Pond_avg_temp), -stats$B1_0_100_pond_avg_recession_mm.hr)
+```
+
+
+```{r}
+cor.test(x = stats$B1_pond_avg_recession_mm.hr, y = stats$B1_Pond_avg_temp, method = 'kendall')
+cor.test(x = stats$B1_pond_avg_recession_mm.hr, y = stats$B1_pond_max_depth_mm, method = 'kendall')
+cor.test(x = stats$B1_pond_avg_recession_mm.hr, y = stats$Event_Duration_hr, method = 'kendall')
+cor.test(x = stats$B1_pond_avg_recession_mm.hr, y = stats$B1_ponding_duration_hr, method = 'kendall')
+cor.test(x = stats$B1_pond_avg_recession_mm.hr, y = stats$Total_Rainfall_mm, method = 'kendall')
+cor.test(x = stats$B1_pond_avg_recession_mm.hr, y = stats$Average_Intensity_mm.hr, method = 'kendall')
+```
+
+```{r}
+EnvStats::kendallSeasonalTrendTest(stats$B1_pond_avg_recession_mm.hr, season = quarter(stats$Event_Date), year = year(stats$Event_Date))
+```
+
+
+```{r}
+stats %>% 
+	ggplot() +
+	geom_histogram(aes(x = yday(Event_Date)), bins = 36) +
+	labs(x = "Ordinal Date", y = "Count")
+# 150th day = May 30th
+# 200th day = July 19th
+```
+
